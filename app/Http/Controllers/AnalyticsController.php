@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Visitor;
 use Illuminate\Http\Request;
-use Yajra\DataTables\DataTables;
 
 class AnalyticsController extends Controller
 {
@@ -14,14 +13,19 @@ class AnalyticsController extends Controller
         $region = trim((string) $request->query('region', ''));
         $trafficType = trim((string) $request->query('traffic', ''));
         $sort = $request->query('sort', 'hits');
+        $logSource = in_array($request->query('source'), ['access_log', 'self_log'], true)
+            ? $request->query('source')
+            : 'access_log';
 
-        $totalVisitors = Visitor::count();
-        $totalHits = Visitor::sum('hit_count');
-        $activeVisitors = Visitor::where('last_seen', '>=', now()->subMinutes(5))->count();
-        $scannerVisitors = Visitor::where('is_scanner', true)->count();
-        $scannerHits = Visitor::where('is_scanner', true)->sum('hit_count');
+        $baseVisitor = fn () => Visitor::query()->forLogSource($logSource);
 
-        $visitors = Visitor::query()
+        $totalVisitors = $baseVisitor()->count();
+        $totalHits = $baseVisitor()->sum('hit_count');
+        $activeVisitors = $baseVisitor()->where('last_seen', '>=', now()->subMinutes(5))->count();
+        $scannerVisitors = $baseVisitor()->where('is_scanner', true)->count();
+        $scannerHits = $baseVisitor()->where('is_scanner', true)->sum('hit_count');
+
+        $visitors = $baseVisitor()
             ->when($search !== '', function ($query) use ($search) {
                 $query->where(function ($query) use ($search) {
                     $query->where('ip', 'like', "%{$search}%")
@@ -39,7 +43,7 @@ class AnalyticsController extends Controller
             ->paginate(15)
             ->withQueryString();
 
-        $regions = Visitor::query()
+        $regions = $baseVisitor()
             ->selectRaw("COALESCE(region, 'Unknown') as region")
             ->selectRaw('COUNT(*) as visitors')
             ->selectRaw('SUM(hit_count) as hits')
@@ -53,13 +57,13 @@ class AnalyticsController extends Controller
             $end = $start->copy()->endOfHour();
             $hourlyHits->push([
                 'label' => $start->format('H:i'),
-                'hits' => Visitor::whereBetween('last_seen', [$start, $end])->sum('hit_count'),
+                'hits' => $baseVisitor()->whereBetween('last_seen', [$start, $end])->sum('hit_count'),
             ]);
         }
 
-        // --- TARUH BLOK AJAX DI SINI (SETELAH SEMUA DATA DI ATAS SIAP) ---
         if ($request->boolean('ajax')) {
             return response()->json([
+                'logSource' => $logSource,
                 'totalVisitors' => $totalVisitors,
                 'totalHits' => $totalHits,
                 'activeVisitors' => $activeVisitors,
@@ -83,17 +87,16 @@ class AnalyticsController extends Controller
                 ]),
             ]);
         }
-        // -----------------------------------------------------------------
 
-        $regionOptions = Visitor::query()
+        $regionOptions = $baseVisitor()
             ->whereNotNull('region')
             ->where('region', '!=', '')
             ->distinct()
             ->orderBy('region')
             ->pluck('region');
 
-        $topIps = Visitor::orderByDesc('hit_count')->limit(10)->get();
-        $trafficCounts = Visitor::query()
+        $topIps = $baseVisitor()->orderByDesc('hit_count')->limit(10)->get();
+        $trafficCounts = $baseVisitor()
             ->selectRaw('traffic_type')
             ->selectRaw('COUNT(*) as visitors')
             ->selectRaw('SUM(hit_count) as hits')
@@ -101,6 +104,7 @@ class AnalyticsController extends Controller
             ->pluck('hits', 'traffic_type');
 
         return view('analytics.index', compact(
+            'logSource',
             'totalVisitors',
             'totalHits',
             'activeVisitors',

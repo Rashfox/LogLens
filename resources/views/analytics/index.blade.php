@@ -127,6 +127,10 @@
                 <option value="oldest" @selected($sort === 'oldest')>Oldest seen</option>
                 <option value="ip" @selected($sort === 'ip')>IP address</option>
             </select>
+            <select name="source" aria-label="Filter sumber log">
+                <option value="access_log" @selected(($logSource ?? 'access_log') === 'access_log')>Main Apps (access.log)</option>
+                <option value="self_log" @selected(($logSource ?? 'access_log') === 'self_log')>Web Log (log.access.log)</option>
+            </select>
             <button type="submit">Apply filter</button>
         </form>
         <div class="table-wrap">
